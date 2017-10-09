@@ -17,3 +17,6 @@
 
 #vandor
 vendor/
+
+#vscode
+.vscode/
