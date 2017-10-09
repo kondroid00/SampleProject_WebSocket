@@ -47,7 +47,7 @@ func (r *Room) addClient(c echo.Context) error {
 		return err
 	}
 	r.clients = append(r.clients, newClient)
-	newClient.Listen()
+	newClient.run()
 	return nil
 }
 

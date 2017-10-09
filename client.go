@@ -49,10 +49,10 @@ type client struct {
 	userName string
 
 	// write chan
-	write chan []byte
+	//write chan []byte
 
 	// read chan
-	read chan []byte
+	//read chan []byte
 
 	// room
 	room *Room
@@ -68,14 +68,18 @@ func NewClient(c echo.Context, room *Room) (*client, error) {
 		currentState: CLIENT_STATE_INIT,
 		userId:       "",
 		userName:     "",
-		write:        make(chan []byte, messageBufferSize),
-		read:         make(chan []byte, messageBufferSize),
-		room:         room,
+		//write:        make(chan []byte, messageBufferSize),
+		//read: make(chan []byte, messageBufferSize),
+		room: room,
 	}
 	return client, nil
 }
 
-func (c *client) Listen() {
+func (c *client) setClose() {
+	c.currentState = CLIENT_STATE_CLOSED
+}
+
+func (c *client) run() {
 	go c.listen()
 }
 
@@ -84,41 +88,57 @@ func (c *client) listen() {
 		c.end()
 	}()
 
-	ticker := time.NewTicker(time.Second)
 loop:
 	for {
+		/*
+			select {
+			// write
+				case writeMsg := <-c.write:
+					err := c.socket.WriteMessage(websocket.TextMessage, writeMsg)
+					if err != nil {
+						break loop
+					}
+			// write end
+
+			// break goroutin if client is closed
+			case time := <-ticker.C:
+				if c.currentState == CLIENT_STATE_CLOSED {
+					break loop
+				}
+				println(time.String())
+			}
+		*/
+
 		// read
+
 		messageType, readMsg, err := c.socket.ReadMessage()
 		if err != nil {
 			break loop
 		}
 		switch messageType {
 		case websocket.TextMessage:
-			c.read <- readMsg
+			//c.read <- readMsg
+			c.receiveMessage(readMsg)
 		default:
 
 		}
+
 		// read end
 
-		select {
-		// write
-		case writeMsg := <-c.write:
-			err := c.socket.WriteMessage(websocket.TextMessage, writeMsg)
-			if err != nil {
-				break loop
-			}
-		// write end
-
-		// break goroutin if client is closed
-		case time := <-ticker.C:
-			if c.currentState == CLIENT_STATE_CLOSED {
-				break loop
-			}
-			println(time.String())
-		}
 	}
 }
 
 func (c *client) end() {
 
+}
+
+func (c *client) receiveMessage(msg []byte) {
+	c.write(msg)
+}
+
+func (c *client) write(msg []byte) {
+	err := c.socket.WriteMessage(websocket.TextMessage, msg)
+	if err != nil {
+		c.setClose()
+	}
 }
