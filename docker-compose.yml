@@ -7,8 +7,8 @@ services:
       - 'data:/go'
       - '.:/go/src/app'
     ports:
-      - '8080:8080'
-    command: 'go run /go/src/app/main.go'
+      - '1323:1323'
+    command: bash -c "cd /go/src/app && go run *.go"
 
 volumes:
   data:
