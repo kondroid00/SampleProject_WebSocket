@@ -51,6 +51,6 @@ func (r *Room) addClient(c echo.Context) error {
 	return nil
 }
 
-func (r *Room) removeClient(client *Client) {
+func (r *Room) removeClient(client *client) {
 
 }

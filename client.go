@@ -75,39 +75,6 @@ func NewClient(c echo.Context, room *Room) (*client, error) {
 	return client, nil
 }
 
-//state
-func (c *client) changeState(nextState clientState) {
-	newState := nextState
-	oldState := c.currentState
-
-}
-
-func (c *client) onStateEnter(newState clientState) {
-	switch newState {
-	case CLIENT_STATE_INIT:
-
-	case CLIENT_STATE_OPENED:
-
-	case CLIENT_STATE_CLOSED:
-
-	default:
-		return
-	}
-}
-
-func (c *client) onStateExit(oldState clientState) {
-	switch oldState {
-	case CLIENT_STATE_INIT:
-
-	case CLIENT_STATE_OPENED:
-
-	case CLIENT_STATE_CLOSED:
-
-	default:
-		return
-	}
-}
-
 func (c *client) Listen() {
 	go c.listen()
 }
@@ -147,6 +114,7 @@ loop:
 			if c.currentState == CLIENT_STATE_CLOSED {
 				break loop
 			}
+			println(time.String())
 		}
 	}
 }
