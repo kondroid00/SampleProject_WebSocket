@@ -20,3 +20,6 @@ vendor/
 
 #vscode
 .vscode/
+
+#debug
+debug

@@ -13,7 +13,7 @@ type clientState int
 
 const (
 	// state
-	CLIENT_STATE_INIT clientState = iota - 1
+	CLIENT_STATE_INIT clientState = iota
 	CLIENT_STATE_OPENED
 	CLIENT_STATE_CLOSED
 
@@ -35,7 +35,7 @@ var upgrater = &websocket.Upgrader{
 		return true
 	}}
 
-type client struct {
+type Client struct {
 	// websocket
 	socket *websocket.Conn
 
@@ -48,95 +48,89 @@ type client struct {
 	// userNam
 	userName string
 
-	// write chan
-	//write chan []byte
-
-	// read chan
-	//read chan []byte
-
 	// room
 	room *Room
+
+	// client no
+	clientNo int
 }
 
-func NewClient(c echo.Context, room *Room) (*client, error) {
+func NewClient(c echo.Context, room *Room) (*Client, error) {
 	socket, err := upgrater.Upgrade(c.Response(), c.Request(), nil)
 	if err != nil {
 		return nil, err
 	}
-	client := &client{
+	client := &Client{
 		socket:       socket,
 		currentState: CLIENT_STATE_INIT,
 		userId:       "",
 		userName:     "",
-		//write:        make(chan []byte, messageBufferSize),
-		//read: make(chan []byte, messageBufferSize),
-		room: room,
+		room:         room,
+		clientNo:     room.clientNo,
 	}
 	return client, nil
 }
 
-func (c *client) setClose() {
+func (c *Client) setOpen() {
+	c.currentState = CLIENT_STATE_OPENED
+}
+
+func (c *Client) setClose() {
 	c.currentState = CLIENT_STATE_CLOSED
 }
 
-func (c *client) run() {
+func (c *Client) run() {
 	go c.listen()
 }
 
-func (c *client) listen() {
+func (c *Client) listen() {
 	defer func() {
+		c.setClose()
 		c.end()
 	}()
 
 loop:
 	for {
-		/*
-			select {
-			// write
-				case writeMsg := <-c.write:
-					err := c.socket.WriteMessage(websocket.TextMessage, writeMsg)
-					if err != nil {
-						break loop
-					}
-			// write end
-
-			// break goroutin if client is closed
-			case time := <-ticker.C:
-				if c.currentState == CLIENT_STATE_CLOSED {
-					break loop
-				}
-				println(time.String())
-			}
-		*/
-
 		// read
-
 		messageType, readMsg, err := c.socket.ReadMessage()
 		if err != nil {
 			break loop
 		}
 		switch messageType {
 		case websocket.TextMessage:
-			//c.read <- readMsg
 			c.receiveMessage(readMsg)
 		default:
-
 		}
-
-		// read end
-
 	}
 }
 
-func (c *client) end() {
-
+func (c *Client) end() {
+	c.room.removeClient(c)
 }
 
-func (c *client) receiveMessage(msg []byte) {
-	c.write(msg)
+func (c *Client) receiveMessage(msg []byte) {
+	/*
+		data := string(msg)
+		prefix := string([]rune(data)[:3])
+		payload := string([]rune(data)[3:])
+		log.Printf("prefix = " + prefix)
+		log.Printf("payload = " + payload)
+
+		switch prefix {
+		case CONSTANTS_MSGPREFIX_JOINED:
+
+		case CONSTANTS_MSGPREFIX_REMOVED:
+
+		case CONSTANTS_MSGPREFIX_MESSAGE:
+
+		}
+
+		c.write(msg)
+	*/
+	c.room.broadcast(msg)
 }
 
-func (c *client) write(msg []byte) {
+func (c *Client) write(msg []byte) {
 	err := c.socket.WriteMessage(websocket.TextMessage, msg)
 	if err != nil {
 		c.setClose()

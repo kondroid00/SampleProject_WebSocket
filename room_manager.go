@@ -42,8 +42,20 @@ func (rm *RoomManager) Serve(c echo.Context) error {
 	if err := newRoom.addClient(c); err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	} else {
+		newRoom.setOpen()
 		return c.String(http.StatusOK, "OK")
 	}
 
 	return c.String(http.StatusInternalServerError, "Error")
+}
+
+func (rm *RoomManager) RemoveRoom(room *Room) {
+	newRooms := make([]*Room, 0, (len(rm.rooms) - 1))
+	for _, r := range rm.rooms {
+		if r != room {
+			newRooms = append(newRooms, r)
+		}
+	}
+	rm.rooms = newRooms
+	
 }
