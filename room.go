@@ -113,7 +113,11 @@ func (r *Room) sendInfo(prefix msgPrefix, client *Client) {
 			}
 			clients = append(clients, clientDto)
 		}
-		jsonByte, _ := json.Marshal(clients)
+		jsonByte, _ := json.Marshal(struct {
+			Clients []*dto.Client `json:"clients"`
+		}{
+			Clients: clients,
+		})
 		data := append([]byte(prefix), jsonByte...)
 		sender.write(data)
 	}
