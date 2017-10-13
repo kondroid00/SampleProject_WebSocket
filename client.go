@@ -20,8 +20,9 @@ const (
 	CLIENT_STATE_CLOSED
 
 	// ping pong
-	PING_WAIT = 5 * time.Second
-	PONG_WAIT = 5 * time.Second
+	PING_INTERVAL = time.Second
+	PING_WAIT     = 5 * time.Second
+	PONG_WAIT     = 5 * time.Second
 )
 
 // websocket
@@ -83,10 +84,12 @@ func (c *Client) setClose() {
 
 func (c *Client) run() {
 	go c.listen()
+	go c.pingPong()
 }
 
 func (c *Client) listen() {
 	defer func() {
+		log.Printf("clientNo %d listen goroutin break", c.clientNo)
 		c.setClose()
 		c.end()
 	}()
@@ -106,7 +109,35 @@ loop:
 	}
 }
 
+func (c *Client) pingPong() {
+	defer func() {
+		log.Printf("clientNo %d pingPong goroutin break", c.clientNo)
+	}()
+
+	ticker := time.NewTicker(PING_INTERVAL)
+	c.socket.SetReadDeadline(time.Now().Add(PONG_WAIT))
+	c.socket.SetPongHandler(func(string) error {
+		c.socket.SetReadDeadline(time.Now().Add(PONG_WAIT))
+		return nil
+	})
+loop:
+	for {
+		select {
+		case <-ticker.C:
+			if c.currentState == CLIENT_STATE_CLOSED {
+				break loop
+			}
+			if err := c.socket.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+				break loop
+			}
+			c.socket.SetWriteDeadline(time.Now().Add(PING_WAIT))
+		}
+	}
+}
+
 func (c *Client) end() {
+	log.Printf("end clientNo = %d", c.clientNo)
+
 	c.room.removeClient(c)
 }
 
