@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -109,25 +111,53 @@ func (c *Client) end() {
 }
 
 func (c *Client) receiveMessage(msg []byte) {
-	/*
-		data := string(msg)
-		prefix := string([]rune(data)[:3])
-		payload := string([]rune(data)[3:])
-		log.Printf("prefix = " + prefix)
-		log.Printf("payload = " + payload)
 
-		switch prefix {
-		case CONSTANTS_MSGPREFIX_JOINED:
+	data := string(msg)
+	prefix := string([]rune(data)[:3])
+	payload := string([]rune(data)[3:])
+	log.Printf("prefix = " + prefix)
+	//log.Printf("payload = " + payload)
 
-		case CONSTANTS_MSGPREFIX_REMOVED:
-
-		case CONSTANTS_MSGPREFIX_MESSAGE:
-
+	switch MsgPrefix(prefix) {
+	case MSGPREFIX_JOINED:
+		type Data struct {
+			Name   string `json:"name"`
+			UserId string `json:"userId"`
 		}
+		data := &Data{}
+		err := json.Unmarshal([]byte(payload), &data)
+		if err != nil {
+			c.sendError(ERRORCODE_JOINED)
+		}
+		c.userName = data.Name
+		c.userId = data.UserId
+		c.setOpen()
+		c.room.sendInfo(MSGPREFIX_JOINED, c)
 
-		c.write(msg)
-	*/
-	c.room.broadcast(msg)
+	case MSGPREFIX_REMOVED:
+
+	case MSGPREFIX_MESSAGE:
+		c.room.broadcast(msg)
+	case MSGPREFIX_ERROR:
+
+	}
+
+}
+
+func (c *Client) sendError(errorCode ErrorCode) {
+	jsonByte, _ := json.Marshal(struct {
+		ErrorCode int    `json:"errorCode"`
+		Message   string `json:"message"`
+	}{
+		ErrorCode: int(errorCode),
+		Message:   getErrorCodeMessage(errorCode),
+	})
+	c.writeWithPrefix(MSGPREFIX_ERROR, jsonByte)
+}
+
+func (c *Client) writeWithPrefix(prefix MsgPrefix, msg []byte) {
+	data := append([]byte(prefix), msg...)
+	c.write(data)
 }
 
 func (c *Client) write(msg []byte) {

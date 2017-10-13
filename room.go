@@ -63,13 +63,11 @@ func (r *Room) addClient(c echo.Context) error {
 	}
 	r.clients = append(r.clients, newClient)
 	newClient.run()
-	newClient.setOpen()
-	r.sendInfo(CONSTANTS_MSGPREFIX_JOINED, newClient)
 	return nil
 }
 
 func (r *Room) removeClient(client *Client) {
-	r.sendInfo(CONSTANTS_MSGPREFIX_REMOVED, client)
+	r.sendInfo(MSGPREFIX_REMOVED, client)
 	newClients := make([]*Client, 0, (len(r.clients) - 1))
 	for _, c := range r.clients {
 		if c != client {
@@ -89,8 +87,14 @@ func (r *Room) broadcast(msg []byte) {
 	}
 }
 
-// prefix must be CONSTANTS_MSGPREFIX_JOINED or CONSTANTS_MSGPREFIX_REMOVED
-func (r *Room) sendInfo(prefix msgPrefix, client *Client) {
+func (r *Room) broadcastWithPrefix(prefix MsgPrefix, msg []byte) {
+	for _, c := range r.clients {
+		c.writeWithPrefix(prefix, msg)
+	}
+}
+
+// prefix must be MSGPREFIX_JOINED or MSGPREFIX_REMOVED
+func (r *Room) sendInfo(prefix MsgPrefix, client *Client) {
 	for _, sender := range r.clients {
 		clients := make([]*dto.Client, 0, len(r.clients))
 		for _, c := range r.clients {
@@ -118,7 +122,6 @@ func (r *Room) sendInfo(prefix msgPrefix, client *Client) {
 		}{
 			Clients: clients,
 		})
-		data := append([]byte(prefix), jsonByte...)
-		sender.write(data)
+		sender.writeWithPrefix(prefix, jsonByte)
 	}
 }
