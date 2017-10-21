@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/kondroid00/SampleProject_Socket/dto"
+	"github.com/kondroid00/SampleProject_WebSocket/dto"
 	"github.com/labstack/echo"
 )
 

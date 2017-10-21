@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo"
@@ -41,6 +42,9 @@ var upgrater = &websocket.Upgrader{
 type Client struct {
 	// websocket
 	socket *websocket.Conn
+
+	// mutex
+	mutex sync.Mutex
 
 	// state
 	currentState clientState
@@ -192,6 +196,8 @@ func (c *Client) writeWithPrefix(prefix MsgPrefix, msg []byte) {
 }
 
 func (c *Client) write(msg []byte) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 	err := c.socket.WriteMessage(websocket.TextMessage, msg)
 	if err != nil {
 		c.setClose()
