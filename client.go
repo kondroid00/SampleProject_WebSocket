@@ -116,6 +116,10 @@ loop:
 func (c *Client) pingPong() {
 	defer func() {
 		log.Printf("clientNo %d pingPong goroutin break", c.clientNo)
+		err := recover()
+		if err != nil {
+			log.Printf("Recover %s clientNo %d", "pingPong", c.clientNo)
+		}
 	}()
 
 	ticker := time.NewTicker(PING_INTERVAL)
@@ -146,6 +150,12 @@ func (c *Client) end() {
 }
 
 func (c *Client) receiveMessage(msg []byte) {
+	defer func() {
+		err := recover()
+		if err != nil {
+			log.Printf("Recover %s clientNo %d", "receiveMessage", c.clientNo)
+		}
+	}()
 
 	data := string(msg)
 	prefix := string([]rune(data)[:3])
