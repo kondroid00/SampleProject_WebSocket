@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/kondroid00/SampleProject_WebSocket/dto"
@@ -34,6 +35,9 @@ type Room struct {
 
 	// client no
 	clientNo int
+
+	// mutex
+	mutex sync.Mutex
 }
 
 func NewRoom(roomId string) *Room {
@@ -48,14 +52,20 @@ func NewRoom(roomId string) *Room {
 }
 
 func (r *Room) setOpen() {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	r.currentState = ROOM_STATE_OPENED
 }
 
 func (r *Room) setClose() {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	r.currentState = ROOM_STATE_CLOSED
 }
 
 func (r *Room) addClient(c echo.Context) error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	r.clientNo++
 	newClient, err := NewClient(c, r)
 	if err != nil {
@@ -67,6 +77,8 @@ func (r *Room) addClient(c echo.Context) error {
 }
 
 func (r *Room) removeClient(client *Client) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	r.sendInfo(MSGPREFIX_REMOVED, client)
 	newClients := make([]*Client, 0, (len(r.clients) - 1))
 	for _, c := range r.clients {
@@ -77,17 +89,22 @@ func (r *Room) removeClient(client *Client) {
 	r.clients = newClients
 
 	if len(r.clients) == 0 {
+		r.setClose()
 		RoomManagerInstance().RemoveRoom(r)
 	}
 }
 
 func (r *Room) broadcast(msg []byte) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	for _, c := range r.clients {
 		c.write(msg)
 	}
 }
 
 func (r *Room) broadcastWithPrefix(prefix MsgPrefix, msg []byte) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	for _, c := range r.clients {
 		c.writeWithPrefix(prefix, msg)
 	}
@@ -95,6 +112,8 @@ func (r *Room) broadcastWithPrefix(prefix MsgPrefix, msg []byte) {
 
 // prefix must be MSGPREFIX_JOINED or MSGPREFIX_REMOVED
 func (r *Room) sendInfo(prefix MsgPrefix, client *Client) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	for _, sender := range r.clients {
 		clients := make([]*dto.Client, 0, len(r.clients))
 		for _, c := range r.clients {
