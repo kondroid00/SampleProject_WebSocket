@@ -13,9 +13,13 @@ import (
 type roomState int
 
 const (
+	// state
 	ROOM_STATE_INIT roomState = iota
 	ROOM_STATE_OPENED
 	ROOM_STATE_CLOSED
+
+	// lifetime from stopping updated
+	ROOM_LIFETIME = time.Hour
 )
 
 type Room struct {
@@ -45,6 +49,9 @@ type Room struct {
 
 	// returner
 	returner *RoomReturner
+
+	// end sync once
+	endSyncOnce sync.Once
 }
 
 type RoomAdapter struct {
@@ -110,6 +117,7 @@ func (r *Room) setClose() {
 func (r *Room) update() {
 	defer func() {
 		log.Printf("room %s update goroutin break", r.roomId)
+		r.end()
 	}()
 
 	ticker := time.NewTicker(time.Second)
@@ -117,14 +125,19 @@ loop:
 	for {
 		select {
 		case context := <-r.adapter.addClientChan:
-			r.addClientImpl(context)
+			r.addClient(context)
 		case client := <-r.adapter.removeClientChan:
-			r.removeClientImpl(client)
+			r.removeClient(client)
 		case data := <-r.adapter.sendMessageChan:
-			r.sendMessageImpl(data)
+			r.sendMessage(data)
 		case data := <-r.adapter.sendInfoChan:
-			r.sendInfoImpl(data)
+			r.sendInfo(data)
 		case <-ticker.C:
+			// state is closed if room has not been updated
+			if r.updatedAt.Before(time.Now().Add(-ROOM_LIFETIME)) {
+				r.setClose()
+			}
+			// break if state is closed
 			if r.currentState == ROOM_STATE_CLOSED {
 				break loop
 			}
@@ -132,7 +145,8 @@ loop:
 	}
 }
 
-func (r *Room) addClientImpl(c *echo.Context) {
+func (r *Room) addClient(c *echo.Context) {
+	r.setUpdatedAt()
 	r.clientNo++
 	newClient, err := NewClient(c, r)
 	if err != nil {
@@ -143,8 +157,15 @@ func (r *Room) addClientImpl(c *echo.Context) {
 	r.returner.addClientChan <- nil
 }
 
-func (r *Room) removeClientImpl(client *Client) {
-	r.sendInfoImpl(&InfoData{
+func (r *Room) removeAllClient() {
+	for _, c := range r.clients {
+		c.setClose()
+	}
+}
+
+func (r *Room) removeClient(client *Client) {
+	r.setUpdatedAt()
+	r.sendInfo(&InfoData{
 		prefix: MSGPREFIX_REMOVED,
 		client: client})
 	newClients := make([]*Client, 0, (len(r.clients) - 1))
@@ -157,29 +178,19 @@ func (r *Room) removeClientImpl(client *Client) {
 
 	if len(r.clients) == 0 {
 		r.setClose()
-		RoomManagerInstance().RemoveRoom(r)
 	}
 }
 
-/*
-func (r *Room) broadcastImpl(data *MessageData) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
-	for _, c := range r.clients {
-		c.writeWithPrefix(data.prefix, data.message)
-	}
-}
-*/
-
-func (r *Room) sendMessageImpl(message []byte) {
+func (r *Room) sendMessage(message []byte) {
+	r.setUpdatedAt()
 	for _, c := range r.clients {
 		c.write(message)
 	}
 }
 
 // prefix must be MSGPREFIX_JOINED or MSGPREFIX_REMOVED
-func (r *Room) sendInfoImpl(data *InfoData) {
+func (r *Room) sendInfo(data *InfoData) {
+	r.setUpdatedAt()
 	for _, sender := range r.clients {
 		clients := make([]*dto.Client, 0, len(r.clients))
 		for _, c := range r.clients {
@@ -209,4 +220,16 @@ func (r *Room) sendInfoImpl(data *InfoData) {
 		})
 		sender.writeWithPrefix(data.prefix, jsonByte)
 	}
+}
+
+func (r *Room) setUpdatedAt() {
+	r.updatedAt = time.Now()
+}
+
+func (r *Room) end() {
+	log.Printf("end roomId = %s", r.roomId)
+	r.endSyncOnce.Do(func() {
+		r.removeAllClient()
+		RoomManagerInstance().RemoveRoom(r)
+	})
 }
