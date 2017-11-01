@@ -2,12 +2,14 @@ package main
 
 import (
 	"net/http"
+	"sync"
 
 	"github.com/labstack/echo"
 )
 
 type RoomManager struct {
 	rooms []*Room
+	mutex sync.Mutex
 }
 
 // singleton
@@ -24,11 +26,15 @@ func RoomManagerInstance() *RoomManager {
 }
 
 func (rm *RoomManager) Serve(c echo.Context) error {
+	rm.mutex.Lock()
+	defer rm.mutex.Unlock()
 	roomId := c.Param("id")
 	for _, room := range rm.rooms {
 		if room.roomId == roomId {
 			if room.currentState == ROOM_STATE_OPENED {
-				if err := room.addClient(c); err != nil {
+				room.adapter.addClientChan <- &c
+				err := <-room.returner.addClientChan
+				if err != nil {
 					return c.String(http.StatusInternalServerError, err.Error())
 				}
 				return c.String(http.StatusOK, "OK")
@@ -38,8 +44,11 @@ func (rm *RoomManager) Serve(c echo.Context) error {
 
 	// create a new room if the room does not exists
 	newRoom := NewRoom(roomId)
+	newRoom.run()
 	rm.rooms = append(rm.rooms, newRoom)
-	if err := newRoom.addClient(c); err != nil {
+	newRoom.adapter.addClientChan <- &c
+	err := <-newRoom.returner.addClientChan
+	if err != nil {
 		return c.String(http.StatusInternalServerError, err.Error())
 	} else {
 		newRoom.setOpen()
@@ -50,6 +59,8 @@ func (rm *RoomManager) Serve(c echo.Context) error {
 }
 
 func (rm *RoomManager) RemoveRoom(room *Room) {
+	rm.mutex.Lock()
+	defer rm.mutex.Unlock()
 	newRooms := make([]*Room, 0, (len(rm.rooms) - 1))
 	for _, r := range rm.rooms {
 		if r != room {
@@ -57,5 +68,5 @@ func (rm *RoomManager) RemoveRoom(room *Room) {
 		}
 	}
 	rm.rooms = newRooms
-	
+
 }

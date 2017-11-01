@@ -60,10 +60,13 @@ type Client struct {
 
 	// client no
 	clientNo int
+
+	// end sync once
+	endSyncOnce sync.Once
 }
 
-func NewClient(c echo.Context, room *Room) (*Client, error) {
-	socket, err := upgrater.Upgrade(c.Response(), c.Request(), nil)
+func NewClient(c *echo.Context, room *Room) (*Client, error) {
+	socket, err := upgrater.Upgrade((*c).Response(), (*c).Request(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -91,6 +94,34 @@ func (c *Client) run() {
 	go c.pingPong()
 }
 
+func (c *Client) sendError(errorCode ErrorCode) {
+	jsonByte, _ := json.Marshal(struct {
+		ErrorCode int    `json:"errorCode"`
+		Message   string `json:"message"`
+	}{
+		ErrorCode: int(errorCode),
+		Message:   getErrorCodeMessage(errorCode),
+	})
+	c.writeWithPrefix(MSGPREFIX_ERROR, jsonByte)
+}
+
+func (c *Client) writeWithPrefix(prefix MsgPrefix, msg []byte) {
+	data := append([]byte(prefix), msg...)
+	c.write(data)
+}
+
+func (c *Client) write(msg []byte) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	err := c.socket.WriteMessage(websocket.TextMessage, msg)
+	if err != nil {
+		c.setClose()
+	}
+}
+
+//------------------------------------------------------------------------------------------------------
+// listen goroutin
+//------------------------------------------------------------------------------------------------------
 func (c *Client) listen() {
 	defer func() {
 		log.Printf("clientNo %d listen goroutin break", c.clientNo)
@@ -113,6 +144,52 @@ loop:
 	}
 }
 
+func (c *Client) receiveMessage(msg []byte) {
+	defer func() {
+		err := recover()
+		if err != nil {
+			log.Printf("Recover %s clientNo %d", "receiveMessage", c.clientNo)
+		}
+	}()
+
+	data := string(msg)
+	prefix := string([]rune(data)[:3])
+	payload := string([]rune(data)[3:])
+	log.Printf("prefix = " + prefix)
+	log.Printf("payload = " + payload)
+
+	switch MsgPrefix(prefix) {
+	case MSGPREFIX_JOINED:
+		type Data struct {
+			Name   string `json:"name"`
+			UserId string `json:"userId"`
+		}
+		data := &Data{}
+		err := json.Unmarshal([]byte(payload), &data)
+		if err != nil {
+			c.sendError(ERRORCODE_JOINED)
+		}
+		c.userName = data.Name
+		c.userId = data.UserId
+		c.setOpen()
+		c.room.adapter.sendInfoChan <- &InfoData{
+			prefix: MSGPREFIX_JOINED,
+			client: c,
+		}
+
+	case MSGPREFIX_REMOVED:
+
+	case MSGPREFIX_MESSAGE:
+		c.room.adapter.sendMessageChan <- msg
+	case MSGPREFIX_ERROR:
+
+	}
+
+}
+
+//------------------------------------------------------------------------------------------------------
+// listen goroutin
+//------------------------------------------------------------------------------------------------------
 func (c *Client) pingPong() {
 	defer func() {
 		log.Printf("clientNo %d pingPong goroutin break", c.clientNo)
@@ -143,73 +220,10 @@ loop:
 	}
 }
 
+// May be called in all goroutin
 func (c *Client) end() {
 	log.Printf("end clientNo = %d", c.clientNo)
-
-	c.room.removeClient(c)
-}
-
-func (c *Client) receiveMessage(msg []byte) {
-	defer func() {
-		err := recover()
-		if err != nil {
-			log.Printf("Recover %s clientNo %d", "receiveMessage", c.clientNo)
-		}
-	}()
-
-	data := string(msg)
-	prefix := string([]rune(data)[:3])
-	payload := string([]rune(data)[3:])
-	log.Printf("prefix = " + prefix)
-	//log.Printf("payload = " + payload)
-
-	switch MsgPrefix(prefix) {
-	case MSGPREFIX_JOINED:
-		type Data struct {
-			Name   string `json:"name"`
-			UserId string `json:"userId"`
-		}
-		data := &Data{}
-		err := json.Unmarshal([]byte(payload), &data)
-		if err != nil {
-			c.sendError(ERRORCODE_JOINED)
-		}
-		c.userName = data.Name
-		c.userId = data.UserId
-		c.setOpen()
-		c.room.sendInfo(MSGPREFIX_JOINED, c)
-
-	case MSGPREFIX_REMOVED:
-
-	case MSGPREFIX_MESSAGE:
-		c.room.broadcast(msg)
-	case MSGPREFIX_ERROR:
-
-	}
-
-}
-
-func (c *Client) sendError(errorCode ErrorCode) {
-	jsonByte, _ := json.Marshal(struct {
-		ErrorCode int    `json:"errorCode"`
-		Message   string `json:"message"`
-	}{
-		ErrorCode: int(errorCode),
-		Message:   getErrorCodeMessage(errorCode),
+	c.endSyncOnce.Do(func() {
+		c.room.adapter.removeClientChan <- c
 	})
-	c.writeWithPrefix(MSGPREFIX_ERROR, jsonByte)
-}
-
-func (c *Client) writeWithPrefix(prefix MsgPrefix, msg []byte) {
-	data := append([]byte(prefix), msg...)
-	c.write(data)
-}
-
-func (c *Client) write(msg []byte) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	err := c.socket.WriteMessage(websocket.TextMessage, msg)
-	if err != nil {
-		c.setClose()
-	}
 }

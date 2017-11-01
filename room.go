@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"sync"
 	"time"
 
@@ -38,6 +39,33 @@ type Room struct {
 
 	// mutex
 	mutex sync.Mutex
+
+	// adapter
+	adapter *RoomAdapter
+
+	// returner
+	returner *RoomReturner
+}
+
+type RoomAdapter struct {
+	addClientChan    chan *echo.Context
+	removeClientChan chan *Client
+	sendMessageChan  chan []byte
+	sendInfoChan     chan *InfoData
+}
+
+type RoomReturner struct {
+	addClientChan chan error
+}
+
+type MessageData struct {
+	prefix  MsgPrefix
+	message []byte
+}
+
+type InfoData struct {
+	prefix MsgPrefix
+	client *Client
 }
 
 func NewRoom(roomId string) *Room {
@@ -48,7 +76,20 @@ func NewRoom(roomId string) *Room {
 		createdAt:    time.Now(),
 		updatedAt:    time.Now(),
 		clientNo:     0,
+		adapter: &RoomAdapter{
+			addClientChan:    make(chan *echo.Context),
+			removeClientChan: make(chan *Client),
+			sendMessageChan:  make(chan []byte),
+			sendInfoChan:     make(chan *InfoData),
+		},
+		returner: &RoomReturner{
+			addClientChan: make(chan error),
+		},
 	}
+}
+
+func (r *Room) run() {
+	go r.update()
 }
 
 func (r *Room) setOpen() {
@@ -63,23 +104,49 @@ func (r *Room) setClose() {
 	r.currentState = ROOM_STATE_CLOSED
 }
 
-func (r *Room) addClient(c echo.Context) error {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+//------------------------------------------------------------------------------------------------------
+// main goroutin
+//------------------------------------------------------------------------------------------------------
+func (r *Room) update() {
+	defer func() {
+		log.Printf("room %s update goroutin break", r.roomId)
+	}()
+
+	ticker := time.NewTicker(time.Second)
+loop:
+	for {
+		select {
+		case context := <-r.adapter.addClientChan:
+			r.addClientImpl(context)
+		case client := <-r.adapter.removeClientChan:
+			r.removeClientImpl(client)
+		case data := <-r.adapter.sendMessageChan:
+			r.sendMessageImpl(data)
+		case data := <-r.adapter.sendInfoChan:
+			r.sendInfoImpl(data)
+		case <-ticker.C:
+			if r.currentState == ROOM_STATE_CLOSED {
+				break loop
+			}
+		}
+	}
+}
+
+func (r *Room) addClientImpl(c *echo.Context) {
 	r.clientNo++
 	newClient, err := NewClient(c, r)
 	if err != nil {
-		return err
+		r.returner.addClientChan <- err
 	}
 	r.clients = append(r.clients, newClient)
 	newClient.run()
-	return nil
+	r.returner.addClientChan <- nil
 }
 
-func (r *Room) removeClient(client *Client) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-	r.sendInfo(MSGPREFIX_REMOVED, client)
+func (r *Room) removeClientImpl(client *Client) {
+	r.sendInfoImpl(&InfoData{
+		prefix: MSGPREFIX_REMOVED,
+		client: client})
 	newClients := make([]*Client, 0, (len(r.clients) - 1))
 	for _, c := range r.clients {
 		if c != client {
@@ -94,32 +161,31 @@ func (r *Room) removeClient(client *Client) {
 	}
 }
 
-func (r *Room) broadcast(msg []byte) {
+/*
+func (r *Room) broadcastImpl(data *MessageData) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
+
 	for _, c := range r.clients {
-		c.write(msg)
+		c.writeWithPrefix(data.prefix, data.message)
 	}
 }
+*/
 
-func (r *Room) broadcastWithPrefix(prefix MsgPrefix, msg []byte) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+func (r *Room) sendMessageImpl(message []byte) {
 	for _, c := range r.clients {
-		c.writeWithPrefix(prefix, msg)
+		c.write(message)
 	}
 }
 
 // prefix must be MSGPREFIX_JOINED or MSGPREFIX_REMOVED
-func (r *Room) sendInfo(prefix MsgPrefix, client *Client) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+func (r *Room) sendInfoImpl(data *InfoData) {
 	for _, sender := range r.clients {
 		clients := make([]*dto.Client, 0, len(r.clients))
 		for _, c := range r.clients {
 
 			action := false
-			if c == client {
+			if c == data.client {
 				action = true
 			}
 
@@ -141,6 +207,6 @@ func (r *Room) sendInfo(prefix MsgPrefix, client *Client) {
 		}{
 			Clients: clients,
 		})
-		sender.writeWithPrefix(prefix, jsonByte)
+		sender.writeWithPrefix(data.prefix, jsonByte)
 	}
 }
